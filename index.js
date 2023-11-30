@@ -2,14 +2,24 @@ const express = require("express");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const app = express();
 require("dotenv").config();
-// const jwt = require("jsonwebtoken");
+const jwt = require("jsonwebtoken");
+const cookieParser = require("cookie-parser");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const cors = require("cors");
 const port = process.env.PORT || 5050;
 
 // middle ware
-app.use(cors());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://asset-management-system-48546.web.app",
+    ],
+    credentials: true,
+  })
+);
 app.use(express.json());
+app.use(cookieParser());
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.082e3cj.mongodb.net/?retryWrites=true&w=majority`;
 
@@ -22,10 +32,31 @@ const client = new MongoClient(uri, {
   },
 });
 
+//middlewares
+const logger = (req, res, next) => {
+  next();
+};
+
+const verifyToken = (req, res, next) => {
+  const token = req?.cookies?.token;
+  // console.log("token in the middleWare", token);
+  // no token available
+  if (!token) {
+    return res.status(401).send({ message: "Unauthorized access" });
+  }
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(401).send({ message: "unauthorized access" });
+    }
+    req.user = decoded;
+    next();
+  });
+};
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const managementUserCollection = client
       .db("managementDB")
@@ -47,21 +78,38 @@ async function run() {
       .db("managementDB")
       .collection("adminAdd");
 
+    ///
+
     //auth related api
-    // app.post("/jwt", logger, async (req, res) => {
-    //   const user = req.body;
-    //   console.log("user for token", user);
-    //   const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
-    //     expiresIn: "1h",
-    //   });
-    //   res
-    //     .cookie("token", token, {
-    //       httpOnly: true,
-    //       secure: process.env.NODE_ENV === "production",
-    //       sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
-    //     })
-    //     .send({ success: true });
-    // });
+    app.post("/jwt", logger, async (req, res) => {
+      const user = req.body;
+      // console.log("user for token", user);
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+        expiresIn: "1h",
+      });
+      res
+        .cookie("token", token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+        })
+        .send({ success: true });
+    });
+
+    // user logged Out
+    app.post("/logout", async (req, res) => {
+      const user = req.body;
+      // console.log("logging Out User", user);
+      res
+        .clearCookie("token", {
+          maxAge: 0,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+        })
+        .send({ success: true });
+    });
+
+    //
 
     // management related api
     app.post("/users", async (req, res) => {
